@@ -1,0 +1,23 @@
+{
+  "extends": "@tsconfig/svelte/tsconfig.json",
+  "compilerOptions": {
+    "target": "es2017",
+    "module": "es2022" /* Specify what module code is generated. */,
+    "baseUrl": "./",
+    "types": [
+      "svelte"
+    ],
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": false
+  },
+  "include": [
+    "js/app.ts",
+    "asset_types.d.ts"
+  ],
+  "exclude": [
+    "node_modules/**",
+    "dist/**"
+  ]
+}

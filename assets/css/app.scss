@@ -1,0 +1,44 @@
+/* This file is for your main application CSS */
+@import "./normalize.css";
+
+@font-face {
+  font-family: 'Pixel Arial 16';
+  font-style: normal;
+  font-weight: normal;
+  src: url(../fonts/ARIAL-16-Regular.woff) format('woff');
+}
+
+@font-face {
+  font-family: 'Pixel Arial 16';
+  font-style: normal;
+  font-weight: bold;
+  src: url(../fonts/ARIAL-16-Bold.woff) format('woff');
+}
+
+$font-size: 16px;
+
+html {
+  font-family: 'Pixel Arial 16';
+  font-size: $font-size;
+  line-height: $font-size;
+  box-sizing: border-box;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+html,
+body,
+main,
+#app {
+  width: 100%;
+  height: 100%;
+  min-height: fit-content;
+}
+
+*,
+*:before,
+*:after {
+  box-sizing: inherit;
+}
