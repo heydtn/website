@@ -1,65 +1,106 @@
 import { Doc as YDoc, Map as YMap, Array as YArray, YMapEvent } from 'yjs'
+import type { Process } from './processes'
 
 export type WindowArgs = {
   x: number
   y: number
+  z: number
   width: number
   height: number
   minimized: boolean
   maximized: boolean
 }
+type WindowArgsValues = WindowArgs[keyof WindowArgs]
 export type WindowRoot = YMap<WindowArgsValues>
+export type WindowID = string
 
 const windowDefault: () => WindowArgs = () => ({
   x: (window.innerWidth * 1 / 4) / 2,
   y: (window.innerWidth * 1 / 4) / 2,
+  z: Number.MAX_SAFE_INTEGER,
   width: window.innerWidth * 3 / 4,
   height: window.innerHeight * 3 / 4,
   minimized: false,
   maximized: false
 })
-const windowKeys = Object.keys(windowDefault()) as (keyof WindowArgs)[]
+const windowKeys = Object.keys(windowDefault()) as (keyof Partial<WindowArgs>)[]
 
-type WindowArgsValues = WindowArgs[keyof WindowArgs]
-const windowArgsValidators: { [P in keyof WindowArgs]: (value: any) => boolean } = {
-  x: (value: any) => typeof value === 'number',
-  y: (value: any) => typeof value === 'number',
-  width: (value: any) => typeof value === 'number',
-  height: (value: any) => typeof value === 'number',
-  minimized: (value: any) => typeof value === 'boolean',
-  maximized: (value: any) => typeof value === 'boolean'
+function isNumber(value: any): value is number {
+  return typeof value === 'number'
 }
+
+function isBoolean(value: any): value is boolean {
+  return typeof value === 'boolean'
+}
+
+const windowArgsValidators: { [P in keyof WindowArgs]: (value: any) => value is WindowArgs[P] } = {
+  x: isNumber,
+  y: isNumber,
+  z: isNumber,
+  width: isNumber,
+  height: isNumber,
+  minimized: isBoolean,
+  maximized: isBoolean
+}
+
+type WindowUpdateArgs = Omit<WindowArgs, "z">
 
 export class Window {
   root: WindowRoot
   static rootType = YMap
 
-  constructor(root?: Window['root'], args?: Partial<WindowArgs>) {
-    this.root = root ? root : new YMap<WindowArgsValues>(Object.entries({ ...windowDefault(), ...args }).filter(([_, value]) => value !== undefined))
+  parent: Process<any, any, any>
+
+  constructor(opts: { parent: Window['parent'], root?: Window['root'], args?: Partial<WindowArgs> }) {
+    this.root =
+      opts.root
+        ? opts.root
+        : new YMap<WindowArgsValues>(
+          Object.entries({ ...windowDefault(), ...opts.args })
+            .filter(([_, value]) => value !== undefined)
+        )
+
+    this.parent = opts.parent
   }
 
   subscribe(f: (values: Partial<WindowArgs>) => void) {
+    const initial: Partial<WindowArgs> = this.validateArgs({
+      x: this.root.get('x'),
+      y: this.root.get('y'),
+      z: this.root.get('z'),
+      width: this.root.get('width'),
+      height: this.root.get('height'),
+      minimized: this.root.get('minimized'),
+      maximized: this.root.get('maximized')
+    })
+
+    f(initial)
+
     this.root.observe((event: YMapEvent<WindowArgsValues>) => {
-      const result: Partial<WindowArgs> = {}
+      const result: { [type: string]: any } = {}
+      let changed: boolean = false
 
-      windowKeys.forEach(field => {
-        const changeSpec = event.keys.get(field)
+      windowKeys.forEach((field) => {
+        const changeSpec = event.changes.keys.get(field)
 
-        if (!changeSpec) { return }
+        if (changeSpec?.action === "add" || changeSpec?.action === "update") {
+          const newValue = this.root.get(field)
+          const validator = windowArgsValidators[field]
 
-        if (
-          (changeSpec.action === "add" || changeSpec.action === "update")
-          && windowArgsValidators[field](changeSpec.newValue)
-        ) {
-          result[field] = changeSpec.newValue
+          if (validator(newValue)) {
+            changed = true
+            result[field] = newValue
+          }
         }
       })
 
-      f(result as WindowArgs)
+      if (changed) {
+        f(result)
+      }
     })
   }
 
-  update(values: Partial<WindowArgs>): void {
+  update(values: Partial<WindowUpdateArgs>): void {
     if (this.root.doc) {
       this.root.doc.transact(() => {
         this.updateValues(values)
@@ -68,6 +109,8 @@ export class Window {
       this.updateValues(values)
     }
   }
+
+  destroy() { }
 
   private updateValues(values: Partial<WindowArgs>): void {
     let key: keyof WindowArgs
@@ -79,5 +122,18 @@ export class Window {
 
       this.root.set(key, val)
     }
+  }
+
+  private validateArgs(args: { [P in keyof Partial<WindowArgs>]: any }): Partial<WindowArgs> {
+    let result: Partial<WindowArgs> = {}
+    let key: keyof Partial<WindowArgs>
+
+    for (key in args) {
+      if (windowArgsValidators[key](args[key])) {
+        result[key] = args[key]
+      }
+    }
+
+    return result
   }
 }

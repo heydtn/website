@@ -8,6 +8,7 @@
 <script lang="ts">
   import CursorDefault from '../images/cursors/default.svg';
   import CursorGrab from '../images/cursors/grab.svg';
+  import { getColorForName } from './user_colors';
 
   export let name = 'unknown user';
   export let x = 0;
@@ -20,11 +21,12 @@
   };
 
   $: cursor = cursors[type] || cursors[Cursors.Default];
+  $: localUserColor = getColorForName(name);
 </script>
 
 <div class="cursor" style:left="{x}px" style:top="{y}px">
   <img class="image {type}" src={cursor} alt="Cursor for ${name}" />
-  <span class="label">{name}</span>
+  <span class="label" style:background-color={localUserColor}>{name}</span>
 </div>
 
 <style lang="scss">

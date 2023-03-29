@@ -5,18 +5,15 @@
   import Cursor, { Cursors } from './cursor.svelte';
   import type { ContextMenuEvent } from './events';
 
-  import { localUser, awareness, os, type Processes } from './os';
+  import { localUser, awareness, os } from './os';
+  import type { Processes } from './processes';
+
+  import BrowserComponent from './processes/browser.svelte';
 
   let users: any = [];
 
   let processes: Processes;
 
-  // let windows: any = [
-  //   { title: 'Testing' },
-  //   { title: 'Testing2' },
-  //   { title: 'Testing3' },
-  // ];
-  // let focusStack: any = windows.map((item: any, index: number) => index);
   let isFocusingWindow: boolean = false;
 
   // $: currentFocus = focusStack[focusStack.length - 1];
@@ -113,7 +110,7 @@
     users = Array.from(awareness.getStates().values());
   });
 
-  os.subscribeProcesses((ps) => {
+  os.processes.subscribe((ps) => {
     processes = ps;
   });
 </script>
@@ -137,8 +134,8 @@
     class="layer-windows"
     on:mousedown|stopPropagation={withCursorUpdate(clickedOutsideContext)}
   >
-    {#each processes as process}
-      <svelte:component this={process.component} id={process.id} />
+    {#each [...processes] as [_, process]}
+      <svelte:component this={process.component} {process} />
     {/each}
   </div>
 

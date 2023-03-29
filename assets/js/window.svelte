@@ -31,8 +31,10 @@
   export let debug: boolean = false;
   export let title: string = '';
 
+  let render: boolean = false;
   let x: number = 50;
   let y: number = 50;
+  let z: number = 0;
   let width: number = 400;
   let height: number = 500;
   let minimized: boolean = false;
@@ -146,60 +148,89 @@
     dragHandler = null;
   }
 
-  function dragSizeN(event: MouseEvent) {
+  function calcN(event: MouseEvent) {
     let otherSide = y + height;
     y = Math.min(event.clientY, otherSide - minHeight);
     height = otherSide - y;
   }
-  function dragSizeE(event: MouseEvent) {
+
+  function calcE(event: MouseEvent) {
     width = Math.max(minWidthActual, event.clientX - x);
   }
-  function dragSizeS(event: MouseEvent) {
+
+  function calcS(event: MouseEvent) {
     height = Math.max(minHeightActual, event.clientY - y);
   }
-  function dragSizeW(event: MouseEvent) {
+
+  function calcW(event: MouseEvent) {
     let otherSide = x + width;
     x = Math.min(event.clientX, otherSide - minWidth);
     width = otherSide - x;
   }
+
+  function dragSizeN(event: MouseEvent) {
+    calcN(event);
+    window.update({ y, height });
+  }
+  function dragSizeE(event: MouseEvent) {
+    calcE(event);
+    window.update({ width });
+  }
+  function dragSizeS(event: MouseEvent) {
+    calcS(event);
+    window.update({ height });
+  }
+  function dragSizeW(event: MouseEvent) {
+    calcW(event);
+    window.update({ x, width });
+  }
   function dragSizeNE(event: MouseEvent) {
-    dragSizeN(event);
-    dragSizeE(event);
+    calcN(event);
+    calcE(event);
+    window.update({ y, height, width });
   }
   function dragSizeNW(event: MouseEvent) {
-    dragSizeN(event);
-    dragSizeW(event);
+    calcN(event);
+    calcW(event);
+    window.update({ x, y, height, width });
   }
   function dragSizeSE(event: MouseEvent) {
-    dragSizeS(event);
-    dragSizeE(event);
+    calcS(event);
+    calcE(event);
+    window.update({ height, width });
   }
   function dragSizeSW(event: MouseEvent) {
-    dragSizeS(event);
-    dragSizeW(event);
+    calcS(event);
+    calcW(event);
+    window.update({ x, height, width });
   }
 
   function dragMove(event: MouseEvent) {
     x = moveOffsetX + event.clientX;
     y = moveOffsetY + event.clientY;
+    window.update({ x, y });
   }
 
   function toggleMaximized() {
     if (maximizable) {
       maximized = !maximized;
+      window.update({ maximized });
     }
   }
 
   function handleMinimize() {
     minimized = true;
+    window.update({ minimized });
   }
 
   function handleMaximize() {
     maximized = true;
+    window.update({ maximized });
   }
 
   function handleUnmaximize() {
     maximized = false;
+    window.update({ maximized });
   }
 
   function handleContextMenu(event: MouseEvent) {
@@ -220,10 +251,11 @@
     dispatch('close');
   }
 
-  window.subscribe(
+  $: window.subscribe(
     ({
       x: ix,
       y: iy,
+      z: iz,
       width: iwidth,
       height: iheight,
       minimized: iminimized,
@@ -234,6 +266,9 @@
       }
       if (iy !== undefined) {
         y = iy;
+      }
+      if (iz !== undefined) {
+        z = iz;
       }
       if (iwidth !== undefined) {
         width = iwidth;
@@ -247,109 +282,109 @@
       if (imaximized !== undefined) {
         maximized = imaximized;
       }
+      render = true;
     }
   );
-
-  $: window.update({ x, y, width, height });
-  $: window.update({ maximized });
-  $: window.update({ minimized });
 </script>
 
 <svelte:window on:mousemove={dragHandler} on:mouseup={dragStop} />
 
-<div
-  class="window"
-  class:debug
-  class:focused
-  class:maximized
-  style:left="{x}px"
-  style:top="{y}px"
-  style:width="{width}px"
-  style:height="{height}px"
-  on:mousedown={handleMouseDown}
-  on:contextmenu={handleContextMenu}
->
-  <div class="inner">
-    <div class="actions">
-      <slot name="actions" />
-    </div>
-
-    {#if showManage}
-      <div class="manage">
-        <WindowManage
-          {closable}
-          {minimizable}
-          maximizable={maximizable && !maximized}
-          unmaximizable={maximizable && maximized}
-          on:close={handleClose}
-          on:minimize={handleMinimize}
-          on:maximize={handleMaximize}
-          on:unmaximize={handleUnmaximize}
-        />
+{#if render}
+  <div
+    class="window"
+    class:debug
+    class:focused
+    class:maximized
+    style:left="{x}px"
+    style:top="{y}px"
+    style:z-index={z}
+    style:width="{width}px"
+    style:height="{height}px"
+    on:mousedown={handleMouseDown}
+    on:contextmenu={handleContextMenu}
+  >
+    <div class="inner">
+      <div class="actions">
+        <slot name="actions" />
       </div>
+
+      {#if showManage}
+        <div class="manage">
+          <WindowManage
+            {closable}
+            {minimizable}
+            maximizable={maximizable && !maximized}
+            unmaximizable={maximizable && maximized}
+            on:close={handleClose}
+            on:minimize={handleMinimize}
+            on:maximize={handleMaximize}
+            on:unmaximize={handleUnmaximize}
+          />
+        </div>
+      {/if}
+
+      <div
+        class="handle"
+        on:dblclick={toggleMaximized}
+        on:mousedown={leftClick(moveClick)}
+      >
+        <span class="handle-contents">{title}</span>
+        <div class="handle-bottom" />
+      </div>
+
+      <div class="body">
+        <slot />
+      </div>
+
+      <div class="footer">
+        <slot name="footer" />
+      </div>
+    </div>
+
+    {#if resizable && !maximized}
+      <div
+        class="resize edge n"
+        on:mousedown={leftClick(resizeClick(dragSizeN))}
+        on:mouseup={dragStop}
+      />
+      <div
+        class="resize edge e"
+        on:mousedown={leftClick(resizeClick(dragSizeE))}
+        on:mouseup={dragStop}
+      />
+      <div
+        class="resize edge s"
+        on:mousedown={leftClick(resizeClick(dragSizeS))}
+        on:mouseup={dragStop}
+      />
+      <div
+        class="resize edge w"
+        on:mousedown={leftClick(resizeClick(dragSizeW))}
+        on:mouseup={dragStop}
+      />
+      <div
+        class="resize corner nw"
+        on:mousedown={leftClick(resizeClick(dragSizeNW))}
+        on:mouseup={dragStop}
+      />
+      <div
+        class="resize corner sw"
+        on:mousedown={leftClick(resizeClick(dragSizeSW))}
+        on:mouseup={dragStop}
+      />
+      <div
+        class="resize corner ne"
+        on:mousedown={leftClick(resizeClick(dragSizeNE))}
+        on:mouseup={dragStop}
+      />
+      <div
+        class="resize corner se"
+        on:mousedown={leftClick(resizeClick(dragSizeSE))}
+        on:mouseup={dragStop}
+      />
     {/if}
-
-    <div
-      class="handle"
-      on:dblclick={toggleMaximized}
-      on:mousedown={leftClick(moveClick)}
-    >
-      <span class="handle-contents">{title}</span>
-      <div class="handle-bottom" />
-    </div>
-
-    <div class="body">
-      <slot />
-    </div>
-
-    <div class="footer">
-      <slot name="footer" />
-    </div>
   </div>
-
-  {#if resizable && !maximized}
-    <div
-      class="resize edge n"
-      on:mousedown={leftClick(resizeClick(dragSizeN))}
-      on:mouseup={dragStop}
-    />
-    <div
-      class="resize edge e"
-      on:mousedown={leftClick(resizeClick(dragSizeE))}
-      on:mouseup={dragStop}
-    />
-    <div
-      class="resize edge s"
-      on:mousedown={leftClick(resizeClick(dragSizeS))}
-      on:mouseup={dragStop}
-    />
-    <div
-      class="resize edge w"
-      on:mousedown={leftClick(resizeClick(dragSizeW))}
-      on:mouseup={dragStop}
-    />
-    <div
-      class="resize corner nw"
-      on:mousedown={leftClick(resizeClick(dragSizeNW))}
-      on:mouseup={dragStop}
-    />
-    <div
-      class="resize corner sw"
-      on:mousedown={leftClick(resizeClick(dragSizeSW))}
-      on:mouseup={dragStop}
-    />
-    <div
-      class="resize corner ne"
-      on:mousedown={leftClick(resizeClick(dragSizeNE))}
-      on:mouseup={dragStop}
-    />
-    <div
-      class="resize corner se"
-      on:mousedown={leftClick(resizeClick(dragSizeSE))}
-      on:mouseup={dragStop}
-    />
-  {/if}
-</div>
+{/if}
 
 <style lang="scss">
   @use 'sass:math';
@@ -362,8 +397,6 @@
     border-left: var(--frame-border-size) solid var(--color-background-600);
     border-bottom: var(--frame-border-size) solid var(--color-background-900);
     border-right: var(--frame-border-size) solid var(--color-background-900);
-
-    z-index: var(--z-index);
   }
 
   .resize {

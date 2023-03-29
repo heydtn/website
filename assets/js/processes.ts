@@ -1,161 +1,128 @@
-// import { Store, type Storable, type Indexed } from './store'
-
-// List of all applications
-// import BrowserComponent, * as Browser from './processes/browser.svelte'
-// import type { Unsubscriber } from 'svelte/store';
-// import type { WindowEvent } from './window.svelte';
-
 import type { SvelteComponent } from 'svelte'
 import { Doc as YDoc, Map as YMap, Array as YArray, YMapEvent } from 'yjs'
-import { Window, type WindowRoot, type WindowArgs } from './windows'
-import { os } from './store'
-// End applications
+import { Window, type WindowRoot, type WindowArgs, type WindowID } from './windows'
+import { os } from './os'
 
-// export type ProcessID = string;
-// export type UnlaunchedProcess<M, T> = Omit<ProcessData<M, T>, "id" | "mailbox" | "windows">
-// export type ProcessRoute = Pick<ProcessData<any, any>, "id"> & { component: Registry[keyof Registry]["Component"] }
-
-// export type WindowHandle = string;
-// export interface WindowData extends Indexed<WindowHandle> {
-//   x: number
-//   y: number
-//   width: number
-//   height: number
-//   minimized: boolean
-//   maximized: boolean
-// }
-
-// export interface ProcessData<M, T> extends Indexed<ProcessID> {
-//   readonly type: keyof Registry
-//   mailbox: M[]
-//   data: T
-//   windows: { [key: string]: WindowData }
-// }
-
-// export const Processes = await Store.new<ProcessData<any, any>, string>(
-//   'processes',
-//   () => crypto.randomUUID(),
-//   { to: (a) => a, from: (a) => a }
-// )
-
-// export function getRoute<M, T>(processData: ProcessData<M, T>): ProcessRoute {
-//   return { id: processData.id, component: Process.Types[processData.type].Component }
-// }
-
-// export type ProcessRoutes = ProcessRoute[];
-// export async function processRoutes(): Promise<ProcessRoutes> {
-//   return await Processes.select((processData) => {
-//     return getRoute(processData)
-//   });
-// }
-
-// export class Process<M, T> {
-//   private processStorable: Storable<ProcessData<M, T>>
-
-//   private constructor(storable: Storable<ProcessData<M, T>>) {
-//     this.processStorable = storable
-//   }
-
-//   static async new<M, T>(index: ProcessID): Promise<Process<M, T>> {
-//     const storable: Storable<ProcessData<M, T>> = await Processes.storable(index)
-
-//     return new Process(storable)
-//   }
-
-//   static async launch<M, T>(def: UnlaunchedProcess<M, T>): Promise<ProcessRoute> {
-//     const process = await Processes.insert({ ...def, windows: {}, mailbox: [] })
-//     return getRoute(process)
-//   }
-
-//   subscribe(f: (value: ProcessData<M, T>) => void): Unsubscriber {
-//     return this.processStorable.subscribe(f)
-//   }
-
-//   async window(name: string, def: Omit<WindowData, "id">): Promise<void> {
-//     this.processStorable.update((value: ProcessData<M, T>) => {
-//       if (value.windows[name]) {
-//         return value
-//       } else {
-//         return {
-//           ...value,
-//           windows: { ...value.windows, [name]: { ...def, id: crypto.randomUUID() } }
-//         }
-//       }
-//     })
-//   }
-
-//   updateData(data: T) {
-//     this.processStorable.update((value: ProcessData<M, T>) => {
-//       return {
-//         ...value,
-//         data
-//       }
-//     })
-//   }
-
-//   updateWindow(name: string, def: WindowData): void {
-//     this.processStorable.update((value: ProcessData<M, T>) => {
-//       return {
-//         ...value,
-//         windows: { ...value.windows, [name]: { ...def } }
-//       }
-//     })
-//   }
-
-//   focusWindow(name: string): void {
-
-//   }
-
-//   closeWindow(name: string): void {
-//     this.processStorable.update((value: ProcessData<M, T>) => {
-//       const newWindows = { ...value.windows }
-//       delete newWindows[name]
-
-//       return {
-//         ...value,
-//         windows: newWindows
-//       }
-//     })
-//   }
-
-//   handleWindowChange(name: string): (event: CustomEvent<WindowEvent>) => void {
-//     return (event: CustomEvent<WindowEvent>) => { this.updateWindow(name, event.detail as WindowData) }
-//   }
-
-//   handleWindowClose(name: string): (event: CustomEvent<void>) => void {
-//     return (event: CustomEvent<void>) => { this.closeWindow(name) }
-//   }
-
-//   closeAllWindows(): void {
-//     this.processStorable.update((value: ProcessData<M, T>) => {
-//       return { ...value, windows: {} }
-//     })
-//   }
-
-//   static readonly Types: Registry = {
-//     Browser: { Type: 'Browser', Component: BrowserComponent, start: Browser.start }
-//   }
-// }
-
-type Registry<C extends Process<A, any, any>, A> = Map<string, new (root?: YDoc, args?: A) => C>
+type Registry<C extends Process<A, any, any>, A> = Map<string, new (args?: A, root?: ProcessRoot) => C>
 export const Registry: Registry<any, any> = new Map()
 
 export type Unsubscriber = () => void
 
-export type ProcessRoot = YDoc
+export type ProcessRoot = YMap<any>
+export type ProcessID = string
+
+export class Processes {
+  root: YMap<ProcessRoot>
+  private processes: Map<ProcessID, Process<any, any, any>> = new Map()
+
+  static docGetProcesses(doc: YDoc, index: string) {
+    const root = doc.getMap<ProcessRoot>(index)
+
+    return new Processes(root)
+  }
+
+  private constructor(root: Processes['root']) {
+    this.root = root
+
+    this.loadProcesses()
+    this.watch()
+  }
+
+  private loadProcesses() {
+    this.root.forEach((_, key) => {
+      const process = Process.mapGetProcess(this.root, key)
+
+      if (process !== undefined) { this.processes.set(key, process) }
+    })
+  }
+
+  private watch() {
+    this.root.observe(event => {
+      event.changes.keys.forEach(({ action }, key) => {
+        if (action === 'add') {
+          const process = Process.mapGetProcess(this.root, key)
+          if (process !== undefined) { this.processes.set(key, process) }
+        } else if (action === 'delete') {
+          this.processes.get(key)?.destroy()
+          this.processes.delete(key)
+        } else if (action === 'update') {
+          this.processes.get(key)?.destroy()
+
+          const process = Process.mapGetProcess(this.root, key)
+          if (process !== undefined) { this.processes.set(key, process) }
+        }
+      })
+    })
+  }
+
+  listProcesses() {
+    return this.processes;
+  }
+
+  subscribe(f: (processes: Processes) => void): Unsubscriber {
+    const observer = (event: YMapEvent<ProcessRoot>) => {
+      f(this)
+    }
+
+    f(this)
+
+    this.root.observe(observer)
+
+    return () => this.root.unobserve(observer)
+  }
+
+  start<P extends Process<any, any, any>>(process: P) {
+    if (!process.id) {
+      const name = crypto.randomUUID()
+      const launch = () => {
+        process.id = name
+
+        this.root.set(name, process.root)
+      }
+
+      if (this.root.doc) {
+        this.root.doc.transact(() => {
+          launch()
+        })
+      } else {
+        launch()
+      }
+    }
+  }
+
+  stop<P extends Process<any, any, any>>(process: P) {
+    this.root.delete(process.id)
+  }
+
+  [Symbol.iterator]() {
+    return this.processes.entries()
+  }
+
+  values() {
+    return this.processes.values()
+  }
+
+  keys() {
+    return this.processes.keys()
+  }
+
+  get length() { return this.processes.size }
+}
 
 export abstract class Process<A, D, M> {
   root: ProcessRoot
-  static rootType = YDoc
+  static rootType = YMap
 
-  abstract component: typeof SvelteComponent
+  abstract get component(): typeof SvelteComponent
+  abstract get type(): string
 
-  private info: YMap<any>
-  private data: D
-  private mailbox: YArray<M>
-  private windows: YMap<WindowRoot>
+  private _info: YMap<any>
+  private _data: YMap<D>
+  private _mailbox: YArray<M>
+  private _windows: YMap<WindowRoot>
+  windows: Map<WindowID, Window> = new Map()
 
-  static register<C extends Process<A, any, any>, A>(name: string, constructor: new (root?: YDoc, args?: A) => C) {
+  static register<C extends Process<A, any, any>, A>(name: string, constructor: new (args?: A, root?: ProcessRoot) => C): void {
     if (name in Registry) {
       throw `Cannot register process ${name}, name already taken`
     }
@@ -163,54 +130,108 @@ export abstract class Process<A, D, M> {
     Registry.set(name, constructor)
   }
 
-  constructor(args?: A, root?: YDoc) {
-    this.root = root ? root : new YDoc({ autoLoad: true })
+  static mapGetProcess<P extends Process<any, any, any>>(map: YMap<ProcessRoot>, key: ProcessID): P | undefined {
+    const maybeProcess = map.get(key)
 
-    let info: typeof this.info
-    let data: typeof this.data
-    let mailbox: typeof this.mailbox
-    let windows: typeof this.windows
+    if (!Process.isValidRoot(maybeProcess)) { return }
 
-    this.root.transact(() => {
-      info = this.initializeInfo()
-      data = this.initializeData(args)
-      mailbox = this.initializeMailbox(args)
-      windows = this.initializeWindows(args)
-    })
+    const type = maybeProcess.get('info')?.get('type')
 
-    this.info = info!
-    this.data = data!
-    this.mailbox = mailbox!
-    this.windows = windows!
+    if (type === undefined) { return }
+
+    const launcher = Registry.get(type)
+
+    if (!launcher) { return }
+
+    return new launcher(undefined, maybeProcess)
   }
 
-  destroy() {
-    this.root.destroy()
+  static isValidRoot(value: any): value is ProcessRoot {
+    return value instanceof YMap
+  }
+
+  get id() {
+    return this._info.get('id')
+  }
+
+  set id(id: ProcessID) {
+    this._info.set('id', id)
+  }
+
+  constructor(args?: A, root?: ProcessRoot) {
+    this.root = Process.isValidRoot(root) ? root : new YMap()
+
+    let _info: typeof this._info
+    let _data: typeof this._data
+    let _mailbox: typeof this._mailbox
+    let _windows: typeof this._windows
+
+    const initialize = () => {
+      _info = this.initializeInfo()
+      _mailbox = this.initializeMailbox(args)
+      _windows = this.initializeWindows(args)
+      _data = this.initializeData(args)
+    }
+
+    if (this.root.doc) {
+      this.root.doc.transact(initialize)
+    } else {
+      initialize()
+    }
+
+    this._info = _info!
+    this._data = _data!
+    this._mailbox = _mailbox!
+    this._windows = _windows!
   }
 
   initializeInfo() {
-    const info = this.root.getMap<any>('info')
+    let infoRoot = this.root.get('info')
 
-    if (!info.get('startTime')) {
-      info.set('startTime', new Date().toISOString())
+    if (!(infoRoot instanceof YMap)) {
+      infoRoot = new YMap()
+      this.root.set('info', infoRoot)
     }
 
-    return info
+    if (!infoRoot.get('startTime')) {
+      infoRoot.set('startTime', new Date().toISOString())
+    }
+    if (!infoRoot.get('type')) {
+      infoRoot.set('type', this.type)
+    }
+
+    return infoRoot
   }
 
-  initializeWindows(args?: A): Process<A, D, M>['windows'] {
-    return this.root.getMap<WindowRoot>('windows')
+  initializeWindows(args?: A): Process<A, D, M>['_windows'] {
+    let windowsRoot = this.root.get('windows')
+    if (!(windowsRoot instanceof YMap)) {
+      windowsRoot = new YMap<WindowRoot>()
+      this.root.set('windows', windowsRoot)
+    }
+    return windowsRoot
   }
 
-  initializeMailbox(args?: A): Process<A, D, M>['mailbox'] {
-    return this.root.getArray<M>('mailbox')
+  initializeMailbox(args?: A): Process<A, D, M>['_mailbox'] {
+    let mailboxRoot = this.root.get('mailbox')
+    if (!(mailboxRoot instanceof YArray)) {
+      mailboxRoot = new YArray<M>()
+      this.root.set('mailbox', mailboxRoot)
+    }
+    return mailboxRoot
   }
 
-  abstract initializeData(args?: A): Process<A, D, M>['data']
+  initializeData(args?: A): Process<A, D, M>['_data'] {
+    let dataRoot = this.root.get('data')
+    if (dataRoot === undefined) {
+      dataRoot = this.data(args)
+      this.root.set('data', dataRoot)
+    }
 
-  stop() {
-    this.root.destroy()
+    return dataRoot
   }
+
+  abstract data(args?: A): Process<A, D, M>['_data']
 
   handleWindowClose(name: string): (event: CustomEvent<void>) => void {
     return (event: CustomEvent<void>) => { this.windowClose(name) }
@@ -218,61 +239,94 @@ export abstract class Process<A, D, M> {
 
   windowClose(name: string) {
     this.windows.delete(name)
+    this._windows.delete(name)
   }
 
   window(name: string, f: (value?: Window) => void, args?: Partial<WindowArgs>): Unsubscriber {
-    let windowRoot = this.windows.get(name)
-    let windowInst
+    let windowRoot = this._windows.get(name)
+    let windowInst: Window
 
     if (windowRoot instanceof Window.rootType) {
-      windowInst = new Window(windowRoot, args)
+      windowInst = new Window({ parent: this, root: windowRoot })
     } else {
-      windowInst = new Window(undefined, args)
-      this.windows.set(name, windowInst.root)
+      windowInst = new Window({ parent: this, args })
     }
 
-    f(windowInst)
+    this.windows.set(name, windowInst)
 
     const subscriber = (event: YMapEvent<WindowRoot>) => {
-      if (event.keys.has(name)) {
-        const changes = event.keys.get(name)!
+      if (event.changes.keys.has(name)) {
+        const changes = event.changes.keys.get(name)
 
-        if (changes.action === "delete") {
+        if (changes?.action === "delete") {
           f()
-        } else if (changes.newValue instanceof Window.rootType) {
-          f(new Window(changes.newValue))
+        } else if (changes?.action === "add" || changes?.action === "update") {
+          const newValue = this._windows.get(name)
+
+          if (newValue instanceof Window.rootType) {
+            f(new Window({ parent: this, root: newValue }))
+          } else {
+            f()
+          }
         } else {
           f()
         }
       }
     }
 
-    this.windows.observe(subscriber)
+    this._windows.observe(subscriber)
+
+    if (!(windowRoot instanceof Window.rootType)) {
+      this._windows.set(name, windowInst.root)
+    } else {
+      f(windowInst)
+    }
 
     return () => {
-      this.windows.unobserve(subscriber)
+      this._windows.unobserve(subscriber)
     }
   }
 
-  subscribeData(f: (value: Process<A, D, M>['data']) => void) {
+  subscribeData(name: string, f: (value?: D) => void) {
+    const subscriber = (event: YMapEvent<D>) => {
+      if (event.changes.keys.has(name)) {
+        const changes = event.changes.keys.get(name)
 
+        if (changes?.action === "delete") {
+          f()
+        } else if (changes?.action === "add" || changes?.action === "update") {
+          const newValue = this._data.get(name)
+
+          f(newValue)
+        } else {
+          f()
+        }
+      }
+    }
+
+    const existing = this._data.get(name)
+    f(existing)
+    this._data.observe(subscriber)
+
+    return () => {
+      this._data.unobserve(subscriber)
+    }
   }
 
-  getName() {
-    return this.info.get('name')
+  start() {
+    os.processes.start(this)
   }
 
-  setName(name: string) {
-    this.info.set('name', name)
+  stop() {
+    this.destroy()
+    os.processes.stop(this)
   }
 
-  launch() {
-    os.launch(this)
+  destroy() {
+    this.windows.forEach(window => {
+      window.destroy()
+    })
+
+    os.focus.deleteBy(processID => processID === this.id)
   }
 }
-
-declare global {
-  interface Window { Process: typeof Process }
-}
-
-window.Process = Process
